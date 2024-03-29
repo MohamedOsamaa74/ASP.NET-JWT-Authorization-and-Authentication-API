@@ -241,7 +241,7 @@ namespace JWTAuthenticationAPI.Controllers
         {
             if (!ModelState.IsValid)
                 return BadRequest(ModelState);
-            var result = await _accountService.ResetPasswordAsync(Model);
+            var result = await _accountService.ResetPasswordAsync(Model); 
             if (result == "Password Reset Successfully")
                 return Ok(result);
             return BadRequest(result);
