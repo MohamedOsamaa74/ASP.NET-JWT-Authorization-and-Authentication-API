@@ -12,7 +12,7 @@ This Repo Has Most Authentication Features Needed In A simple .net WebAPI Projec
 - Assigning User To Role
 - Removing User From Roles
 - Sending Emails Using Gmail SMTP
-- Confirming an Email
+- Confirming an Email using two-factor-Authentication
 - Forgot Password
 - Sending OTP And Verifying it
 - Reset Password
