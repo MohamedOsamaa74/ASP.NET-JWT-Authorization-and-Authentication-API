@@ -4,7 +4,7 @@ This Repo Has Most Authentication Features Needed In A simple .net WebAPI Projec
 - LogIn
 - LogOut
 - Creating Token
-- Creating Refresh Token And Revoking Them
+- Creating Refresh Token And Revoking it
 - Seeding User And Roles
 - Changing A Password
 - Creating New Role
