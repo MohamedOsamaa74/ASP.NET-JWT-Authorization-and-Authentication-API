@@ -62,7 +62,7 @@ namespace JWTAuthenticationAPI.Controllers
             {
                 return BadRequest("Invalid Token");
             }
-            var result = await _accountService.RefreshTokenAsync(refreshToken);
+            var result = await _accountService.RefreshTokenAsync();
             if (!result.IsAuthenticated)
             {
                 return BadRequest(result);
@@ -132,7 +132,7 @@ namespace JWTAuthenticationAPI.Controllers
         public async Task<IActionResult>LogOut()
         {
             var result = await _accountService.LogoutAsync();
-            if (result == "User Logged Out Successfully")
+            if (result == "Logged Out Successfully")
                 return Ok(result);
             return BadRequest(result);
         }
@@ -235,6 +235,18 @@ namespace JWTAuthenticationAPI.Controllers
         }
         #endregion
 
+        #region Verify OTP
+        [HttpPost("VerifyOTP")]
+        public async Task<IActionResult> VerifyOTP([FromBody] VerifyOTPDTO Model)
+        {
+            if (!ModelState.IsValid)
+                return BadRequest(ModelState);
+            var result = await _accountService.VerifyOTPAsync(Model);
+            if (result != "Invalid OTP")
+                return Ok(result);
+            return BadRequest(result);
+        }
+        #endregion
         #region Reset Password
         [HttpPost("ResetPassword")]
         public async Task<IActionResult> ResetPassword([FromBody] ResetPasswordDTO Model)

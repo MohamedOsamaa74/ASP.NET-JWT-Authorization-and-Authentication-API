@@ -68,7 +68,7 @@ namespace JWTAuthenticationAPI.Services
                 return new AuthDTO { Message = "User Registration Failed", Errors = result.Errors.Select(e => e.Description) };
             }
             await _userManager.AddToRoleAsync(user, "User");
-            var token = await CreateToken(user);
+            var token = await CreateTokenAsync(user);
             return new AuthDTO {
                 Message = $"Welcome On Board{user.FirstName}",
                 UserName = user.UserName, Email = user.Email,
@@ -91,7 +91,7 @@ namespace JWTAuthenticationAPI.Services
                 {
                     return new AuthDTO { Message = "Invalid Authentication" };
                 }
-                var token = await CreateToken(user);
+                var token = await CreateTokenAsync(user);
                 var roles = await _userManager.GetRolesAsync(user);
 
                 authModel.Message = $"Welcome Back, {user.FirstName}";
@@ -220,7 +220,7 @@ namespace JWTAuthenticationAPI.Services
         #endregion
 
         #region Create Token
-        private async Task<JwtSecurityToken> CreateToken(ApplicationUser user)
+        private async Task<JwtSecurityToken> CreateTokenAsync(ApplicationUser user)
         {
             #region claims
             var claims = new List<Claim>();
@@ -272,12 +272,26 @@ namespace JWTAuthenticationAPI.Services
         #region Logout
         public async Task<string> LogoutAsync()
         {
-            if(await GetCurrentUserAsync() == null)
+            var refreshToken = _httpContextAccessor.HttpContext.Request.Cookies["refreshToken"];
+            var user = _userManager.Users.SingleOrDefault(u => u.RefreshTokens.Any(t => t.Token == refreshToken));
+            if (user == null)
             {
-                return "User Not Found";
+                return "Invalid token";
             }
-            await _signInManager.SignOutAsync();
-            return "User Logged Out Successfully";
+
+            var oldRefreshToken = user.RefreshTokens.Single(x => x.Token == refreshToken);
+            if (!oldRefreshToken.IsActive)
+            {
+                return "Inactive token";
+            }
+
+            oldRefreshToken.RevokedOn = DateTime.UtcNow;
+            await _userManager.UpdateAsync(user);
+
+            // Clear the refresh token cookie
+            _httpContextAccessor.HttpContext.Response.Cookies.Delete("refreshToken");
+
+            return "Logged out successfully";
         }
         #endregion
 
@@ -360,12 +374,12 @@ namespace JWTAuthenticationAPI.Services
         #region Forgot Password
         public async Task<string> ForgotPasswordAsync(string Email)
         {
-            var otp = await GenerateOTPAsync(Email);
             var user = await _userManager.FindByEmailAsync(Email);
             if (user == null)
             {
                 return "User Not Found";
             }
+            var otp = GenerateOTP(Email);
             try
             {
                 var emailDTO = new EmailDTO
@@ -385,6 +399,19 @@ namespace JWTAuthenticationAPI.Services
         }
         #endregion
 
+        #region Verify OTP
+        public async Task<string> VerifyOTPAsync(VerifyOTPDTO Model)
+        {
+            if (!VerifyOTP(Model.Email, Model.OTP))
+            {
+                return "Invalid OTP";
+            }
+            var user = await _userManager.FindByEmailAsync(Model.Email);
+            var token = await _userManager.GeneratePasswordResetTokenAsync(user);
+            return token;
+        }
+        #endregion
+
         #region Reset Password
         public async Task<string> ResetPasswordAsync(ResetPasswordDTO Model)
         {
@@ -393,17 +420,17 @@ namespace JWTAuthenticationAPI.Services
             {
                 return "User Not Found";
             }
-            if (!await VerifyOTPAsync(Model.Email, Model.OTP))
+            var token = Model.resetPasswordToken;
+            if (token == null)
             {
-                return "Invalid OTP";
+                return "Invalid Token";
             }
-            var token = await _userManager.GeneratePasswordResetTokenAsync(user);
             if(Model.NewPassword != Model.ConfirmPassword)
             {
                 return "Passwords Do Not Match";
             }
             var result = await _userManager.ResetPasswordAsync(user, token, Model.NewPassword);
-            return result.Succeeded ? "Password Reset Successfully" : $"Password Reset Failed{result.Errors}";
+            return result.Succeeded ? "Password Reset Successfully" : $"Password Reset Failed{result.Errors.FirstOrDefault().Description}";
         }
         #endregion
 
@@ -423,33 +450,44 @@ namespace JWTAuthenticationAPI.Services
         #endregion
 
         #region Refresh Token
-        public async Task<AuthDTO> RefreshTokenAsync(string Token)
+        public async Task<AuthDTO> RefreshTokenAsync()
         {
-            var user = _userManager.Users.SingleOrDefault(u => u.RefreshTokens.Any(t => t.Token == Token));
-            if (user == null)
+            try
             {
-                return new AuthDTO { Message = "Invalid Token" };
+                //var RefreshToken = _httpContextAccessor.HttpContext.Request.Cookies["RefreshToken"];
+                var RefreshToken = GetRefreshTokenFromCookie();
+                if (string.IsNullOrEmpty(RefreshToken))
+                    return new AuthDTO { Message = "Invalid Token" };
+                var user = _userManager.Users.SingleOrDefault(u => u.RefreshTokens.Any(t => t.Token == RefreshToken));
+                if (user == null)
+                    return new AuthDTO { Message = "Invalid Token" };
+                var oldRefreshToken = user.RefreshTokens.Single(x => x.Token == RefreshToken);
+                if (!oldRefreshToken.IsActive)
+                {
+                    return new AuthDTO { Message = "InActive Token" };
+                }
+                oldRefreshToken.RevokedOn = DateTime.UtcNow;
+                var newRefreshToken = GenerateRefreshToken();
+                user.RefreshTokens.Add(newRefreshToken);
+                await _userManager.UpdateAsync(user);
+                var jwtToken = await CreateTokenAsync(user);
+                AuthDTO auth = new AuthDTO
+                {
+                    Token = new JwtSecurityTokenHandler().WriteToken(jwtToken),
+                    RefreshToken = newRefreshToken.Token,
+                    RefreshTokenExpiration = newRefreshToken.ExpiresOn,
+                    IsAuthenticated = true,
+                    UserName = user.UserName,
+                    Email = user.Email,
+                    Roles = await _userManager.GetRolesAsync(user) as List<string>,
+                };
+                SetRefreshTokenInCookie(auth.RefreshToken, auth.RefreshTokenExpiration);
+                return auth;
             }
-            var refreshToken = user.RefreshTokens.Single(x => x.Token == Token);
-            if (!refreshToken.IsActive)
+            catch (Exception ex)
             {
-                return new AuthDTO { Message = "InActive Token" };
+                return new AuthDTO { Message = $"An error occurred, {ex.Message}" };
             }
-            refreshToken.RevokedOn = DateTime.UtcNow;
-            var newRefreshToken = GenerateRefreshToken();
-            user.RefreshTokens.Add(newRefreshToken);
-            await _userManager.UpdateAsync(user);
-            var jwtToken = await CreateToken(user);
-            return new AuthDTO
-            {
-                Token = new JwtSecurityTokenHandler().WriteToken(jwtToken),
-                RefreshToken = newRefreshToken.Token,
-                RefreshTokenExpiration = newRefreshToken.ExpiresOn,
-                IsAuthenticated = true,
-                UserName = user.UserName,
-                Email = user.Email,
-                Roles = await _userManager.GetRolesAsync(user) as List<string>,
-            };
         }
         #endregion
 
@@ -473,7 +511,7 @@ namespace JWTAuthenticationAPI.Services
         #endregion
 
         #region Set Refresh Token in Cookie
-        public void SetRefreshTokenInCookieAsync(string Token, DateTime expires)
+        public void SetRefreshTokenInCookie(string Token, DateTime expires)
         {
             var CoockieOptions = new CookieOptions
             {
@@ -484,8 +522,15 @@ namespace JWTAuthenticationAPI.Services
         }
         #endregion
 
+        #region GetRefreshTokenFromCookie
+        private string GetRefreshTokenFromCookie()
+        {
+            return _httpContextAccessor.HttpContext.Request.Cookies["refreshToken"];
+        }
+        #endregion
+
         #region Generate OTP
-        public async Task<string> GenerateOTPAsync(string email)
+        public string GenerateOTP(string email)
         {
             Random random = new Random();
             string otp = random.Next(100000, 999999).ToString();
@@ -495,7 +540,7 @@ namespace JWTAuthenticationAPI.Services
         #endregion
 
         #region Verify OTP
-        public async Task<bool> VerifyOTPAsync(string email, string otp)
+        public bool VerifyOTP(string email, string otp)
         {
             if (_otpCache.ContainsKey(email) && _otpCache[email].OTP == otp && _otpCache[email].Expiry > DateTime.UtcNow)
             {

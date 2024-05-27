@@ -17,11 +17,12 @@ namespace JWTAuthenticationAPI.Services
         public Task<string>DeleteUserAsync(string UserId);
         public Task<string> DeleteRoleAsync(string RoleId);
         public Task<string>LogoutAsync();
-        public Task<AuthDTO> RefreshTokenAsync(string Token);
+        public Task<AuthDTO> RefreshTokenAsync();
         public Task<bool> RevokeTokenAsync(string Token);
         public Task<string> SendConfirmationEmailAsync(string Email);
         public Task<string> ConfirmEmailAsync(string Token);
         public Task<string> ForgotPasswordAsync(string Email);
+        public Task<string> VerifyOTPAsync(VerifyOTPDTO Model);
         public Task<string> ResetPasswordAsync(ResetPasswordDTO Model);
     }
 }
